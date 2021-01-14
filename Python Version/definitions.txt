@@ -1,0 +1,142 @@
+Even Number:
+Evenly divisible by 2
+Examples: (0, 2, 10, 108, 784)
+
+Odd Number:
+Not evenly divisibly by 2
+Examples: (1, 7, 13, 91, 999)
+
+Prime Number:
+Can only be evenly divided by itself and 1
+Example (13 cannot be divided by any other prime number)
+
+Composite Number:
+Can be written as the product of prime numbers other than itself
+Example (22 can be written as (2 * 11))
+
+Digit Sum:
+The total sum of a number's individual digits
+Example (Digit sum of 763 is equal to 7 + 6 + 3 = 16)
+
+Cyclops Number:
+Number that contains only one 0, this zero is in the middle of the number
+Examples: (0, 102, 505, 81047)
+
+Increasing Number:
+A number whose digits are all greater than or equal to thier predecessors
+Example 1: (9, all single digit numbers are increasing)
+Example 2: (77, 7 >= 7 since seven is equal to seven, therefore 77 is increasing)
+Example 3: (322, 3 >= 2 >=2)
+
+Decreasing Number:
+A number whose digits are all less than or equal to their predecessors
+Example 1: (6, all single digit numbers are decreasing)
+Example 2: (333, since 3 is equal to 3 333 is decreasing
+Example 3: (223, 2 >= 2 >= 3)
+
+Strictly Increasing Number:
+A number whose digits are all greater than their predecessors
+Example 1: (9, all single digit numbers are strictly increasing)
+Example 2: (77, NOT strictly increasing since 7 is not greater than 7)
+Example 3: (158, all digits are greater than the last)
+
+Evenish Numbers:
+Numbers whose digit sum is even
+Example: (42, 4 + 2 = 6, 6 is even)
+
+Oddish Numbers:
+Numbers whose digit sum is odd
+Example: (300, 3 + 0 + 0 is odd)
+
+Digit Product:
+The product of a number's digits multiplied together
+Example: (721, 7 x 2 x 1 = 14)
+
+Alternating Numbers:
+Numbers whose parity (evenness and oddness) switch on each digit
+Example 1: (4, all single digit numbers are alternating)
+Example: (258, 2 is even, 5 is odd, 8 is even, therefore 258 is an alternating number)
+
+Undulating Numbers:
+Numbers with any number of digits whose digits follow the pattern of ABABABABA
+Undulating numbers can have A = B
+Example 1: (7, 7 = A, Pattern is A, 7 is undulating)
+Example 2: (717, 7 = A, 1 = B, Pattern is ABA, 71 is undulating)
+Example 3: (77, 7 = A, 7 = B, Pattern is AB, 77 is undulating)
+
+Non-trivial Undulating Numbers:
+Numbers with at least three digits that follow the pattern of ABABABABA
+Example 1: (7, NOT a non-trivial undulating number)
+Example 2: (71, NOT a non-trivial undulating number)
+Example 3: (303, 3 = A, 0 = B, Pattern is ABA, 303 is a non-trivial undulating number)
+
+Semiprime number:
+A number that can be represented as the product of two prime numbers.
+i.e: Number thats prime factorization has only two members
+Example 1: (4, can be represented as 2x2)
+Example 2: (247, is equal to 13x19)
+
+Palindrome:
+A number that is the same both forwards and backwards
+Example 1: (4, all single digit numbers are palindromes)
+Example 2: (77, same forwards and backwards, is a palindrome)
+Example 3: (8008, same forwards and backwards, is a palindrome)
+
+Emirp:
+A prime number that becomes a different prime number backwards
+Example 1: 13 backwards is 31, both 13 and 31 are Emirps
+Example 2: 11 backwards is 11, 11 is prime but 11 is the same as 11, 11 is NOT an Emirp
+
+Emirpimes number:
+Similar to an emirp. A Semiprime number that becomes a different semiprime number backwards
+Example: (15, becomes 51. Both are semiprimes, both are emirpimes)
+
+Non-trivial palindrome:
+A palindrome of at least 2 digits
+
+Twin-Prime Numbers:
+A prime number who's next nearest prime number is either two less or two more than itself
+Example: 17 and 19, Difference between them is 2, they form a pair of twin primes.
+
+Interprime number:
+A composite number that is eqidistant from the nearest prime number both above it and below it
+Example: 12 is 1 above and 1 below a prime number, making it an interprime
+
+Emirpretni number:
+An interprime number that becomes a different interprime number when backwards
+A number ending in 0 cannot be an Emirpretni
+
+Ban numbers:
+A number whose spelled out version does not contain the banned number
+- aban : bans the letter a, the word 'and' is not considered
+- eban : bans the letter e
+- iban : bans the letter i
+- tban : bans the letter t
+- uban : bans the letter u
+- oban : bans the letter o
+Example: 27
+Twenty Seven is an oban number since it contains no 'o's
+Twenty Seven is NOT an eban number since is contains at least one 'e'
+Twenty Seven is NOT a tban number since it contains at least one 't'
+Twenty Seven is an iban number since it contains no 'i's
+
+Niven (Harshad) Numbers:
+A number that is evenly divisible by its Digit Sum
+Example 1: (5, 5's digit sum is 5, 5 is evenly divisible by 5, 5 is a Niven Number)
+Example 2: (133, 133's digit sum is 7, 133 is evenly divisible by 7, 133 is a Niven Number)
+
+Nude Numbers:
+A number that can be evenly divided by all of its individual digits
+Example: 24, can be divided by both 2 and 4 evenly, therefore it is a nude number
+
+Moran Number:
+A Niven (Harshad) Number who, when divided by its Digit sum, results in a prime number
+Example 1: (5, 5 is a Niven Number, 5/5 is 1, 1 is not prime, 5 is NOT a Moran Number)
+Example 2: (18, 18 is a Niven Number, 18/9 is 2, 2 is prime, 18 is a Moran Number)
+Example 3: (152, 152 is a Niven Number, 152/8 is 19, 19 is prime, 152 is a Moran Number)
+
+Narcissistic (Armstrong) Numbers:
+A number that is equal to: the sum of it's digits each raised to the power of the number of digits in the number
+Example: 370
+370 has 3 digits, the power will be 3
+3^3 + 7^3 + 0^3 = 27 + 343 = 370
