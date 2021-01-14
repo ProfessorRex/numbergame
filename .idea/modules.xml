@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/trunk.iml" filepath="$PROJECT_DIR$/.idea/modules/trunk.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/app/trunk.app.iml" filepath="$PROJECT_DIR$/.idea/modules/app/trunk.app.iml" />
+    </modules>
+  </component>
+</project>
