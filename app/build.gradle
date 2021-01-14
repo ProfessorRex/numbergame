@@ -4,7 +4,7 @@ apply plugin: 'com.chaquo.python'
 android {
     compileSdkVersion 30
     defaultConfig {
-        applicationId "com.chaquo.python.console"
+        applicationId "com.numgame.python.console"
         minSdkVersion 16
         targetSdkVersion 30
         versionCode 1
