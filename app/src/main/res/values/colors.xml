@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary">#3F51B5</color>
-    <color name="colorPrimaryDark">#303F9F</color>
-    <color name="colorAccent">#FF4081</color>
+    <color name="colorPrimary">#19796F</color>
+    <color name="colorPrimaryDark">#12534E</color>
+    <color name="colorAccent">#E88957</color>
+    <color name="game_background">#F2F7F5</color>
+    <color name="game_text">#20312E</color>
+    <color name="game_muted">#58706B</color>
+    <color name="game_keypad">#E1EFEB</color>
+    <color name="game_clue">#E8F2EF</color>
 </resources>

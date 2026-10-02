@@ -1,0 +1,21 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^python3 -m py_compile app/src/main/python/numgame\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "./gradlew": true,
+        "/^bash gradlew :app:compileDebugJavaWithJavac$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^bash gradlew :app:compileDebugJavaWithJavac 2>&1 \\| grep -E 'FAILURE:\\|What went wrong:\\|Could not\\|Error\\|Exception\\|requires\\|failed' \\| head -n 30$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python3 -c \"import num2words, numpy; print\\('python dependencies available'\\)\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

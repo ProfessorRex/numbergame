@@ -125,8 +125,131 @@ implements ViewTreeObserver.OnGlobalLayoutListener, ViewTreeObserver.OnScrollCha
             // noinspection WrongConstant
             tvOutput.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
         }
+        final float[] touchY = new float[1];
+        tvOutput.setOnTouchListener((view, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                touchY[0] = event.getY();
+            }
+            return false;
+        });
+        tvOutput.setOnLongClickListener(view -> {
+            Layout textLayout = tvOutput.getLayout();
+            if (textLayout == null) {
+                return false;
+            }
+            int line = textLayout.getLineForVertical(Math.max(0,
+                    (int) touchY[0] - tvOutput.getTotalPaddingTop()));
+            int start = textLayout.getLineStart(line);
+            int end = textLayout.getLineEnd(line);
+            String[] help = getRuleHelp(tvOutput.getText().subSequence(start, end).toString().trim());
+            if (help == null) {
+                return false;
+            }
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle(help[0])
+                    .setMessage(help[1])
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show();
+            return true;
+        });
         // Don't start observing task.output yet: we need to restore the scroll position first so
         // we maintain the scrolled-to-bottom state.
+    }
+
+    private String[] getRuleHelp(String rule) {
+        if (rule.equals("X is an Even Number") || rule.equals("X is not an odd number")) {
+            return new String[] {"Even number", "A number evenly divisible by 2. Examples: 0, 2, 10, 108, 784."};
+        }
+        if (rule.equals("X is an Odd Number") || rule.equals("X is not an even number")) {
+            return new String[] {"Odd number", "A number not evenly divisible by 2. Examples: 1, 7, 13, 91, 999."};
+        }
+        if (rule.toLowerCase().contains("factor of")) {
+            return new String[] {"Factor", "X is a factor of Y when Y divided by X results in an integer. For example, 3 is a factor of 12."};
+        }
+        if (rule.startsWith("The sum of X's digits is ")) {
+            return new String[] {"Digit sum", "Add the number's individual digits. For example, 763 has digit sum 7 + 6 + 3 = 16."};
+        }
+        if (rule.startsWith("The product of X's digits is ")) {
+            return new String[] {"Digit product", "Multiply the number's individual digits. For example, 721 has digit product 7 x 2 x 1 = 14."};
+        }
+        if (rule.contains("ban number in English")) {
+            int articleEnd = rule.indexOf(" is a ");
+            if (articleEnd < 0) {
+                articleEnd = rule.indexOf(" is an ");
+                articleEnd += " is an ".length();
+            } else {
+                articleEnd += " is a ".length();
+            }
+            String letter = rule.substring(articleEnd, articleEnd + 1);
+            return new String[] {letter + "ban number", "The English spelling of the number contains no letter '" + letter + "'. Ignore the word 'and'."};
+        }
+        if (rule.equals("X is a prime number")) {
+            return new String[] {"Prime number", "A number greater than 1 with exactly two positive divisors: 1 and itself. For example, 13."};
+        }
+        if (rule.equals("X is a composite number")) {
+            return new String[] {"Composite number", "An integer greater than 1 that is not prime; it can be written as a product of primes. For example, 22 = 2 x 11."};
+        }
+        if (rule.equals("X is a cyclops number")) {
+            return new String[] {"Cyclops number", "A number with exactly one zero digit, positioned in the middle. Examples: 0, 102, 505, 81047."};
+        }
+        if (rule.equals("X is an increasing number")) {
+            return new String[] {"Increasing number", "Each digit is greater than or equal to the digit before it, reading left to right. Examples: 9, 77, 223."};
+        }
+        if (rule.equals("X is a decreasing Number")) {
+            return new String[] {"Decreasing number", "Each digit is less than or equal to the digit before it, reading left to right. Examples: 6, 333, 322."};
+        }
+        if (rule.equals("X is a strictly increasing number")) {
+            return new String[] {"Strictly increasing number", "Each digit is greater than the digit before it, reading left to right. Examples: 9, 158."};
+        }
+        if (rule.equals("X is a strictly decreasing number")) {
+            return new String[] {"Strictly decreasing number", "Each digit is less than the digit before it, reading left to right. Examples: 6, 321."};
+        }
+        if (rule.equals("X is an evenish number") || rule.equals("X is not an oddish number")) {
+            return new String[] {"Evenish number", "The sum of the number's digits is even. For example, 42 has digit sum 6."};
+        }
+        if (rule.equals("X is an oddish number") || rule.equals("X is not an evenish number")) {
+            return new String[] {"Oddish number", "The sum of the number's digits is odd. For example, 300 has digit sum 3."};
+        }
+        if (rule.equals("X is an alternating number") || rule.equals("X is a non-trivial alternating number")) {
+            return new String[] {"Alternating number", "The parity of each digit switches between even and odd as you read left to right. Single-digit numbers are alternating."};
+        }
+        if (rule.equals("X is an undulating number") || rule.equals("X is a non-trivial undulating number")) {
+            return new String[] {"Undulating number", "The digits repeat the pattern ABABAB...; A and B may be equal. A non-trivial undulating number has at least three digits and A differs from B."};
+        }
+        if (rule.equals("X is a palindrome") || rule.equals("X is a non-trivial palindrome")) {
+            return new String[] {"Palindrome", "The number reads the same forwards and backwards. A non-trivial palindrome has at least two digits."};
+        }
+        if (rule.equals("X is a semiprime number")) {
+            return new String[] {"Semiprime number", "A number whose prime factorization contains exactly two prime factors, counted with multiplicity. Examples: 4 = 2 x 2; 247 = 13 x 19."};
+        }
+        if (rule.equals("X is an emirp")) {
+            return new String[] {"Emirp", "A prime number which becomes a different prime when its digits are reversed. For example, 13 reverses to 31; 11 is not an emirp."};
+        }
+        if (rule.equals("X is an emirpimes number")) {
+            return new String[] {"Emirpimes number", "A semiprime number which becomes a different semiprime when its digits are reversed. For example, 15 reverses to 51."};
+        }
+        if (rule.equals("X is a twin prime number")) {
+            return new String[] {"Twin-prime number", "A prime with another prime exactly 2 away. For example, 17 and 19 form a twin-prime pair."};
+        }
+        if (rule.equals("X is an interprime number")) {
+            return new String[] {"Interprime number", "A composite number equally distant from the nearest prime below and the nearest prime above it. For example, 12 is between 11 and 13."};
+        }
+        if (rule.equals("X is an emirpretni number")) {
+            return new String[] {"Emirpretni number", "An interprime whose reversed digits form a different interprime. Numbers ending in 0 cannot qualify."};
+        }
+        if (rule.equals("X is a niven (Harshad) number")) {
+            return new String[] {"Niven (Harshad) number", "A number evenly divisible by its digit sum. For example, 133 has digit sum 7 and 133 is divisible by 7."};
+        }
+        if (rule.equals("X is a nude number")) {
+            return new String[] {"Nude number", "A number evenly divisible by every one of its digits. A number containing 0 does not qualify."};
+        }
+        if (rule.equals("X is a Moran number")) {
+            return new String[] {"Moran number", "A Niven number whose quotient when divided by its digit sum is prime. For example, 18 / 9 = 2."};
+        }
+        if (rule.equals("X is a narcissistic (Armstrong) number")) {
+            return new String[] {"Narcissistic (Armstrong) number", "A number equal to the sum of each digit raised to the number of digits. For example, 370 = 3^3 + 7^3 + 0^3."};
+        }
+        return null;
     }
 
     @Override protected void onRestoreInstanceState(@NonNull Bundle savedInstanceState) {
