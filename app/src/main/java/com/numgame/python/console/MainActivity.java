@@ -23,8 +23,9 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.view.Window;
 import android.view.Gravity;
@@ -40,16 +41,22 @@ import java.io.FileOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
+import java.util.Random;
 
 public class MainActivity extends AppCompatActivity {
     private static final String SETTINGS_FILE = "number_game_settings";
     private static final String DARK_MODE_KEY = "dark_mode";
+    private static final String COLOR_SCHEME_KEY = "color_scheme";
     private static final String SAVED_GAME_KEY = "saved_game";
     private static final String HIGH_SCORE_POPUP_KEY = "high_score_popup_shown";
     private static final String HIGH_SCORE_FILE = "numbergame-highscore.txt";
+    private static final String RUN_STARTED_AT_KEY = "run_started_at";
 
     private NumberGameEngine game;
     private LinearLayout gameRoot;
@@ -58,26 +65,40 @@ public class MainActivity extends AppCompatActivity {
     private TextView titleView;
     private TextView statsView;
     private TextView livesView;
+    private TextView questionTimerView;
     private TextView pointsOverlayView;
+    private TextView levelUpOverlayView;
     private TextView rangeView;
     private TextView solutionCountView;
     private TextView messageView;
     private EditText answerInput;
     private Button actionButton;
+    private Button hintButton;
+    private final Button[] digitButtons = new Button[10];
     private ImageButton settingsButton;
     private boolean darkMode;
+    private boolean classicMode;
     private boolean gameStarted;
     private boolean gameOver;
     private boolean highScorePopupShown;
     private ToneGenerator soundGenerator;
+    private final Handler timerHandler = new Handler(Looper.getMainLooper());
+    private long questionTimerStartMillis;
+    private long runStartedAtMillis;
+    private long runEndedAtMillis;
+    private Runnable questionTimerUpdate;
     private int currentMinimum;
     private int currentMaximum;
+    private NumberGameEngine.AnswerResult gameOverResult;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        darkMode = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE)
-            .getBoolean(DARK_MODE_KEY, true);
+        SharedPreferences settings = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE);
+        String savedScheme = settings.getString(COLOR_SCHEME_KEY, null);
+        classicMode = "classic".equals(savedScheme);
+        darkMode = savedScheme == null
+            ? settings.getBoolean(DARK_MODE_KEY, true) : "dark".equals(savedScheme);
         setContentView(R.layout.activity_game);
         soundGenerator = new ToneGenerator(AudioManager.STREAM_MUSIC, 65);
         game = new NumberGameEngine();
@@ -87,24 +108,34 @@ public class MainActivity extends AppCompatActivity {
         titleView = findViewById(R.id.tvTitle);
         statsView = findViewById(R.id.tvStats);
         livesView = findViewById(R.id.tvLives);
+        questionTimerView = findViewById(R.id.tvQuestionTimer);
         pointsOverlayView = findViewById(R.id.tvPointsEarned);
+        levelUpOverlayView = findViewById(R.id.tvLevelUp);
         rangeView = findViewById(R.id.tvRange);
         solutionCountView = findViewById(R.id.tvSolutionCount);
         messageView = findViewById(R.id.tvMessage);
         answerInput = findViewById(R.id.etAnswer);
         actionButton = findViewById(R.id.btnAction);
+        hintButton = findViewById(R.id.btnHint);
         settingsButton = findViewById(R.id.btnSettings);
         actionButton.setOnClickListener(view -> handleAction());
+        hintButton.setOnClickListener(view -> {
+            if (gameOver && gameOverResult != null) {
+                showGameOverDialog(gameOverResult);
+            } else {
+                requestHint();
+            }
+        });
         settingsButton.setOnClickListener(view -> showSettings());
         int[] digitButtonIds = {R.id.btnDigit0, R.id.btnDigit1, R.id.btnDigit2,
                 R.id.btnDigit3, R.id.btnDigit4, R.id.btnDigit5, R.id.btnDigit6,
                 R.id.btnDigit7, R.id.btnDigit8, R.id.btnDigit9};
         for (int digit = 0; digit < digitButtonIds.length; digit++) {
             final int value = digit;
-            findViewById(digitButtonIds[digit]).setOnClickListener(view -> appendDigit(value));
+            digitButtons[digit] = findViewById(digitButtonIds[digit]);
+            digitButtons[digit].setOnClickListener(view -> appendDigit(value));
         }
         findViewById(R.id.btnClear).setOnClickListener(view -> answerInput.setText(""));
-        findViewById(R.id.btnBackspace).setOnClickListener(view -> deleteLastDigit());
         answerInput.setOnEditorActionListener((view, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 handleAction();
@@ -126,8 +157,8 @@ public class MainActivity extends AppCompatActivity {
         panel.addView(questionLabel);
 
         String enteredSeed = answerInput.getText().toString().trim();
-        boolean showSeed = gameStarted || gameOver
-            ? !game.usesRandomSeed() : !enteredSeed.isEmpty();
+        boolean showSeed = gameOver || (gameStarted
+            ? !game.usesRandomSeed() : !enteredSeed.isEmpty());
         TextView seedLabel = settingsLabel(gameStarted || gameOver
             ? "Seed: " + game.getCurrentSeed() : "Seed: " + enteredSeed);
         seedLabel.setVisibility(showSeed ? View.VISIBLE : View.GONE);
@@ -139,48 +170,77 @@ public class MainActivity extends AppCompatActivity {
         Button saveButton = new Button(this);
         saveButton.setText("Save game");
         saveButton.setEnabled(gameStarted);
-        saveButton.setTextColor(Color.WHITE);
-        saveButton.setBackground(buttonBackground(
-            darkMode ? Color.rgb(83, 185, 168) : Color.rgb(25, 121, 111),
-            darkMode ? Color.rgb(111, 205, 188) : Color.rgb(18, 96, 87)));
+        saveButton.setTextColor(classicMode ? themedTextColor() : Color.WHITE);
+        saveButton.setBackground(buttonBackground(themedPrimaryColor(), themedBorderColor()));
         saveButton.setOnClickListener(view -> {
             saveProgress();
             saveButton.setText("Saved");
         });
         panel.addView(saveButton);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8), dp(8), dp(8), dp(8));
-        TextView label = settingsLabel("Dark mode");
-        label.setTextSize(16);
-        row.addView(label, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        Switch toggle = new Switch(this);
-        toggle.setChecked(darkMode);
-        row.addView(toggle, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT));
-        panel.addView(row);
-
+        TextView themeLabel = settingsLabel("Color scheme");
+        panel.addView(themeLabel);
+        RadioGroup themeChoices = new RadioGroup(this);
+        themeChoices.setOrientation(RadioGroup.HORIZONTAL);
+        RadioButton lightOption = new RadioButton(this);
+        lightOption.setId(1);
+        lightOption.setText("Light");
+        RadioButton darkOption = new RadioButton(this);
+        darkOption.setId(2);
+        darkOption.setText("Dark");
+        RadioButton classicOption = new RadioButton(this);
+        classicOption.setId(3);
+        classicOption.setText("Classic");
+        for (RadioButton option : new RadioButton[]{lightOption, darkOption, classicOption}) {
+            option.setTextColor(classicMode ? Color.rgb(177, 37, 126)
+                    : darkMode ? Color.rgb(230, 242, 238) : Color.rgb(32, 49, 46));
+            themeChoices.addView(option, new RadioGroup.LayoutParams(
+                    0, RadioGroup.LayoutParams.WRAP_CONTENT, 1));
+        }
+        themeChoices.check(classicMode ? 3 : darkMode ? 2 : 1);
+        panel.addView(themeChoices);
         AlertDialog[] dialogRef = new AlertDialog[1];
-        toggle.setOnCheckedChangeListener((button, enabled) -> {
-            darkMode = enabled;
+        themeChoices.setOnCheckedChangeListener((group, checkedId) -> {
+            classicMode = checkedId == 3;
+            darkMode = checkedId == 2;
             getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit()
-                .putBoolean(DARK_MODE_KEY, enabled).apply();
+                    .putString(COLOR_SCHEME_KEY, classicMode ? "classic"
+                            : darkMode ? "dark" : "light")
+                    .putBoolean(DARK_MODE_KEY, darkMode).apply();
             applyPalette();
-            int text = darkMode ? Color.rgb(230, 242, 238) : Color.rgb(32, 49, 46);
+            int text = classicMode ? Color.rgb(177, 37, 126)
+                    : darkMode ? Color.rgb(230, 242, 238) : Color.rgb(32, 49, 46);
             questionLabel.setTextColor(text);
             seedLabel.setTextColor(text);
             highScoreLabel.setTextColor(text);
-            label.setTextColor(text);
-                saveButton.setBackground(buttonBackground(
-                    darkMode ? Color.rgb(83, 185, 168) : Color.rgb(25, 121, 111),
-                    darkMode ? Color.rgb(111, 205, 188) : Color.rgb(18, 96, 87)));
+            themeLabel.setTextColor(text);
+            for (RadioButton option : new RadioButton[]{lightOption, darkOption, classicOption}) {
+                option.setTextColor(text);
+            }
+                saveButton.setTextColor(classicMode ? themedTextColor() : Color.WHITE);
+                saveButton.setBackground(buttonBackground(themedPrimaryColor(), themedBorderColor()));
             if (dialogRef[0] != null) {
             styleDialog(dialogRef[0]);
             }
         });
+
+        if (gameStarted && game.isDebugMode() && game.getLevel() < 6) {
+            Button skipLevelButton = new Button(this);
+            skipLevelButton.setText("Skip to next level");
+            skipLevelButton.setTextColor(classicMode ? themedTextColor() : Color.WHITE);
+            skipLevelButton.setBackground(buttonBackground(themedPrimaryColor(), themedBorderColor()));
+            skipLevelButton.setOnClickListener(view -> {
+                if (game.skipToNextLevel(this::showQuestion)) {
+                    animateLevelUp(game.getLevel());
+                    actionButton.setEnabled(false);
+                    if (dialogRef[0] != null) dialogRef[0].dismiss();
+                    messageView.setText("Skipped to level " + game.getLevel() + ".");
+                    saveProgress();
+                    updateStats();
+                }
+            });
+            panel.addView(skipLevelButton);
+        }
 
         dialogRef[0] = showThemedDialog(new AlertDialog.Builder(this)
             .setTitle("Settings")
@@ -190,7 +250,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleAction() {
-        if (!gameStarted || gameOver) {
+        if (gameOver) {
+            resetHomeScreen();
+            return;
+        }
+        if (!gameStarted) {
             startGame();
             return;
         }
@@ -202,7 +266,7 @@ public class MainActivity extends AppCompatActivity {
         TextView label = new TextView(this);
         label.setText(text);
         label.setTextSize(14);
-        label.setTextColor(darkMode ? Color.rgb(230, 242, 238) : Color.rgb(32, 49, 46));
+        label.setTextColor(themedTextColor());
         label.setPadding(dp(8), dp(8), dp(8), dp(8));
         return label;
         }
@@ -215,9 +279,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private void styleDialog(AlertDialog dialog) {
-        int surface = darkMode ? Color.rgb(29, 47, 43) : Color.rgb(255, 255, 255);
-        int text = darkMode ? Color.rgb(230, 242, 238) : Color.rgb(32, 49, 46);
-        int accent = darkMode ? Color.rgb(111, 205, 188) : Color.rgb(25, 121, 111);
+        int surface = classicMode ? Color.rgb(182, 246, 255)
+            : darkMode ? Color.rgb(29, 47, 43) : Color.WHITE;
+        int text = themedTextColor();
+        int accent = classicMode ? Color.rgb(219, 9, 142)
+            : darkMode ? Color.rgb(111, 205, 188) : Color.rgb(25, 121, 111);
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(surface));
@@ -234,8 +300,10 @@ public class MainActivity extends AppCompatActivity {
         }
         }
     private void startGame() {
+        stopQuestionTimer();
         Long seed = null;
         String seedText = answerInput.getText().toString().trim();
+        boolean debugMode = "0118999".equals(seedText);
         if (!seedText.isEmpty()) {
             try {
                 seed = Long.parseLong(seedText);
@@ -246,9 +314,12 @@ public class MainActivity extends AppCompatActivity {
         }
         gameStarted = true;
         gameOver = false;
+        runStartedAtMillis = System.currentTimeMillis();
+        runEndedAtMillis = 0;
         highScorePopupShown = false;
         getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit()
-            .remove(HIGH_SCORE_POPUP_KEY).apply();
+            .remove(HIGH_SCORE_POPUP_KEY)
+            .putLong(RUN_STARTED_AT_KEY, runStartedAtMillis).apply();
         clueContainer.removeAllViews();
         rangeView.setText("");
         solutionCountView.setText("");
@@ -256,10 +327,12 @@ public class MainActivity extends AppCompatActivity {
         answerInput.setEnabled(false);
         actionButton.setText("Preparing question...");
         actionButton.setEnabled(false);
+        updateHintButton();
         messageView.setVisibility(View.VISIBLE);
         messageView.setText("Find a number that matches every rule.");
         updateStats();
-        game.startGame(1, seed, this::showQuestion);
+        game.startGame(1, seed, debugMode, this::showQuestion);
+        updateHintButton();
         saveProgress();
     }
 
@@ -272,32 +345,11 @@ public class MainActivity extends AppCompatActivity {
             currentMinimum = question.minimum;
             currentMaximum = question.maximum;
             for (NumberGameEngine.Clue clue : question.clues) {
-                TextView clueView = new TextView(this);
-                clueView.setText(clue.text);
-                clueView.setTextColor(darkMode ? Color.rgb(230, 242, 238) : Color.rgb(32, 49, 46));
-                clueView.setTextSize(14);
-                clueView.setPadding(dp(8), dp(5), dp(8), dp(5));
-                GradientDrawable background = new GradientDrawable();
-                background.setColor(darkMode ? Color.rgb(38, 58, 53) : Color.rgb(232, 242, 239));
-                background.setCornerRadius(dp(5));
-                clueView.setBackground(background);
-                LinearLayout.LayoutParams clueParams = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-                clueParams.bottomMargin = dp(2);
-                clueContainer.addView(clueView, clueParams);
-                clueView.setOnLongClickListener(view -> {
-                    showThemedDialog(new AlertDialog.Builder(this)
-                            .setTitle(clue.title)
-                            .setMessage(clue.explanation)
-                        .setPositiveButton(android.R.string.ok, null));
-                    return true;
-                });
+                addClueView(clue);
             }
             clueContainer.post(this::fitQuestionToAvailableHeight);
             rangeView.setText("Choose a number from " + question.minimum + " to " + question.maximum);
-            solutionCountView.setText(question.solutionCount +
-                    (question.solutionCount == 1 ? " possible answer" : " possible answers"));
+            updateSolutionCount(question);
             if (game.getQuestionsAnswered() >= 10) {
                 messageView.setVisibility(View.GONE);
             } else {
@@ -309,9 +361,73 @@ public class MainActivity extends AppCompatActivity {
             answerInput.setEnabled(true);
             actionButton.setText("Submit answer");
             actionButton.setEnabled(true);
+            updateHintButton();
             updateStats();
             saveProgress();
+            startQuestionTimer();
         });
+    }
+
+    private void addClueView(NumberGameEngine.Clue clue) {
+        TextView clueView = new TextView(this);
+        clueView.setText(clue.text);
+        clueView.setTextColor(themedTextColor());
+        clueView.setTextSize(14);
+        clueView.setPadding(dp(8), dp(5), dp(8), dp(5));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(themedClueColor());
+        background.setCornerRadius(dp(5));
+        clueView.setBackground(background);
+        LinearLayout.LayoutParams clueParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        clueParams.bottomMargin = dp(2);
+        clueContainer.addView(clueView, clueParams);
+        clueView.setOnLongClickListener(view -> {
+            showThemedDialog(new AlertDialog.Builder(this)
+                    .setTitle(clue.title)
+                    .setMessage(clue.explanation)
+                    .setPositiveButton(android.R.string.ok, null));
+            return true;
+        });
+    }
+
+    private void updateSolutionCount(NumberGameEngine.Question question) {
+        String label = question.solutionCount
+                + (question.solutionCount == 1 ? " possible answer" : " possible answers");
+        if (game.isDebugMode()) {
+            label += " [" + question.lowestAnswer + ", " + question.highestAnswer + "]";
+        }
+        solutionCountView.setText(label);
+    }
+
+    private void updateHintButton() {
+        hintButton.setText("HINT (" + game.getHintsAvailable() + ")");
+        hintButton.setEnabled(gameStarted && !gameOver && actionButton.isEnabled());
+    }
+
+    private void requestHint() {
+        NumberGameEngine.HintResult result = game.requestHint();
+        if (result.alreadyUsed) {
+            ObjectAnimator shake = ObjectAnimator.ofFloat(hintButton, "translationX",
+                    0, dp(8), -dp(8), dp(6), -dp(6), 0);
+            shake.setDuration(380);
+            shake.start();
+            messageView.setText("Only one hint per question.");
+            return;
+        }
+        if (result.unavailable) {
+            messageView.setText("No hints available.");
+            return;
+        }
+        NumberGameEngine.Clue clue = result.question.clues.get(
+                result.question.clues.size() - 1);
+        addClueView(clue);
+        updateSolutionCount(result.question);
+        updateHintButton();
+        clueContainer.post(this::fitQuestionToAvailableHeight);
+        messageView.setText("Hint added. " + result.hintsRemaining + " remaining.");
+        saveProgress();
     }
 
     private void submitAnswer() {
@@ -348,43 +464,121 @@ public class MainActivity extends AppCompatActivity {
                 saveProgress();
                 break;
             case CORRECT:
+                stopQuestionTimer();
                 String message = "Correct. +" + result.pointsEarned + " points.";
                 if (result.levelUp) {
                     message += " Level " + result.level + " unlocked. +1 life.";
                 }
+                if (result.specialBonusPoints > 0) {
+                    message += " " + result.specialBonusLabel + " +"
+                            + result.specialBonusPoints + " points.";
+                }
                 messageView.setText(message);
                 playTone(result.levelUp ? ToneGenerator.TONE_PROP_ACK : ToneGenerator.TONE_PROP_BEEP,
                     result.levelUp ? 420 : 120);
-                showPointsEarned(result.pointsEarned);
+                showAnswerBonus(result);
+                if (result.levelUp) {
+                    animateLevelUp(result.level);
+                }
+                animateSpecialAnswer(Integer.parseInt(answerText));
                 animateRuleFeedback(Collections.emptyList(), true);
                 answerInput.setEnabled(false);
                 actionButton.setText("Preparing question...");
                 actionButton.setEnabled(false);
+                updateHintButton();
                 saveProgress();
                 maybeUpdateHighScore(result.totalPoints);
                 new Handler(Looper.getMainLooper()).postDelayed(
                     () -> game.requestNextQuestion(this::showQuestion), 820);
                 break;
             case GAME_OVER:
+                stopQuestionTimer();
                 gameOver = true;
                 gameStarted = false;
+                gameOverResult = result;
+                runEndedAtMillis = System.currentTimeMillis();
+                updateHintButton();
                 answerInput.setText("");
+                answerInput.setHint("Seed (optional)");
+                answerInput.setEnabled(false);
+                actionButton.setText("Restart game");
+                actionButton.setEnabled(true);
                 clearSavedProgress();
                 animateRuleFeedback(result.clueMatches, false);
-                new Handler(Looper.getMainLooper()).postDelayed(() -> showThemedDialog(
-                        new AlertDialog.Builder(this)
-                                .setTitle("Game over")
-                                .setMessage("One correct answer was " + result.correctAnswer
-                                        + ".\n\nYou scored " + result.totalPoints + " points across "
-                                        + game.getQuestionsAnswered() + " questions.")
-                                .setPositiveButton("Return home",
-                                        (dialog, which) -> resetHomeScreen())
-                                .setCancelable(false)), 760);
+                playTone(ToneGenerator.TONE_CDMA_CALLDROP_LITE, 520);
+                new Handler(Looper.getMainLooper()).postDelayed(
+                    () -> showGameOverDialog(result), 760);
                 break;
             default:
                 break;
         }
     }
+
+        private void showGameOverDialog(NumberGameEngine.AnswerResult result) {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(8), dp(20), dp(8));
+
+        TextView summary = new TextView(this);
+        summary.setText("One correct answer was " + result.correctAnswer
+            + ".\n\nYou scored " + result.totalPoints + " points across "
+            + game.getQuestionsAnswered() + " questions.");
+        summary.setTextColor(themedTextColor());
+        summary.setTextSize(14);
+        content.addView(summary);
+
+        Button runTimer = new Button(this);
+        runTimer.setText("Run time  ·  " + formatRunDuration(runEndedAtMillis - runStartedAtMillis)
+            + "  ·  View times");
+        runTimer.setTextColor(classicMode ? themedTextColor() : Color.WHITE);
+        runTimer.setBackground(buttonBackground(themedClueColor(), themedBorderColor()));
+        runTimer.setOnClickListener(view -> showThemedDialog(new AlertDialog.Builder(this)
+            .setTitle("Run timestamps")
+            .setMessage(formatRunTimestampDetails())
+            .setPositiveButton(android.R.string.ok, null)));
+        content.addView(runTimer);
+
+        showThemedDialog(new AlertDialog.Builder(this)
+            .setTitle("Game over")
+            .setView(content)
+            .setNeutralButton("Hide results", (dialog, which) -> {
+                actionButton.setText("Return home");
+                hintButton.setText("SHOW RESULTS");
+                hintButton.setEnabled(true);
+            })
+            .setPositiveButton("Return home", (dialog, which) -> resetHomeScreen())
+            .setCancelable(false));
+        }
+
+        private String formatRunDuration(long elapsedMillis) {
+        long totalSeconds = Math.max(0, elapsedMillis) / 1000;
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds);
+        }
+
+        private String formatRunTimestamp(long timestampMillis) {
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            .format(new Date(timestampMillis));
+        }
+
+        private String formatRunTimestampDetails() {
+            StringBuilder details = new StringBuilder("Started: ")
+                    .append(formatRunTimestamp(runStartedAtMillis))
+                    .append("\n\nEnded: ").append(formatRunTimestamp(runEndedAtMillis))
+                    .append("\n\nLevel-ups:");
+            List<NumberGameEngine.LevelUpEvent> levelUps = game.getLevelUpEvents();
+            if (levelUps.isEmpty()) {
+                details.append("\nNone");
+            } else {
+                for (NumberGameEngine.LevelUpEvent levelUp : levelUps) {
+                    details.append("\nLevel ").append(levelUp.level).append("  ·  ")
+                            .append(formatRunTimestamp(levelUp.timestampMillis));
+                }
+            }
+            return details.toString();
+        }
 
     private void offerContinueIfSavedGame() {
         NumberGameEngine.GameSnapshot snapshot = loadSavedGame();
@@ -397,6 +591,8 @@ public class MainActivity extends AppCompatActivity {
                     gameOver = false;
                     highScorePopupShown = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE)
                             .getBoolean(HIGH_SCORE_POPUP_KEY, false);
+                        runStartedAtMillis = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE)
+                            .getLong(RUN_STARTED_AT_KEY, System.currentTimeMillis());
                     answerInput.setHint("Your answer");
                     answerInput.setEnabled(false);
                     actionButton.setText("Preparing question...");
@@ -455,6 +651,11 @@ public class MainActivity extends AppCompatActivity {
         game = new NumberGameEngine();
         gameStarted = false;
         gameOver = false;
+        gameOverResult = null;
+        runStartedAtMillis = 0;
+        runEndedAtMillis = 0;
+        getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit()
+            .remove(RUN_STARTED_AT_KEY).apply();
         currentMinimum = 0;
         currentMaximum = 0;
         clueContainer.removeAllViews();
@@ -467,6 +668,7 @@ public class MainActivity extends AppCompatActivity {
         answerInput.setEnabled(true);
         actionButton.setText("Start game");
         actionButton.setEnabled(true);
+        updateHintButton();
         pointsOverlayView.animate().cancel();
         pointsOverlayView.setVisibility(View.GONE);
         updateStats();
@@ -512,8 +714,9 @@ public class MainActivity extends AppCompatActivity {
                 0, dp(7), -dp(7), dp(5), -dp(5), 0);
         shake.setDuration(420);
         shake.start();
-        int base = darkMode ? Color.rgb(230, 242, 238) : Color.rgb(32, 49, 46);
-        int highlight = darkMode ? Color.rgb(255, 184, 112) : Color.rgb(190, 84, 49);
+        int base = themedTextColor();
+        int highlight = classicMode ? Color.rgb(255, 80, 155)
+            : darkMode ? Color.rgb(255, 184, 112) : Color.rgb(190, 84, 49);
         ValueAnimator color = ValueAnimator.ofObject(new ArgbEvaluator(), base, highlight, base);
         color.addUpdateListener(animation -> rangeView.setTextColor((Integer) animation.getAnimatedValue()));
         color.setDuration(700);
@@ -521,22 +724,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void animateRuleFeedback(List<Boolean> ruleMatches, boolean correct) {
-        int base = darkMode ? Color.rgb(38, 58, 53) : Color.rgb(232, 242, 239);
-        int border = darkMode ? Color.rgb(70, 96, 88) : Color.rgb(204, 224, 217);
+        int base = themedClueColor();
+        int border = themedBorderColor();
         for (int index = 0; index < clueContainer.getChildCount(); index++) {
             View view = clueContainer.getChildAt(index);
             if (!(view instanceof TextView)) continue;
             boolean matched = correct || (index < ruleMatches.size() && ruleMatches.get(index));
             int target;
             if (correct) {
-                target = darkMode ? Color.rgb(59, 128, 108) : Color.rgb(177, 226, 202);
+                target = classicMode ? Color.rgb(103, 220, 150)
+                    : darkMode ? Color.rgb(59, 128, 108) : Color.rgb(177, 226, 202);
             } else if (matched) {
-                target = darkMode ? Color.rgb(46, 112, 82) : Color.rgb(180, 230, 192);
+                target = classicMode ? Color.rgb(103, 220, 150)
+                    : darkMode ? Color.rgb(46, 112, 82) : Color.rgb(180, 230, 192);
             } else {
-                target = darkMode ? Color.rgb(132, 61, 61) : Color.rgb(246, 190, 181);
+                target = classicMode ? Color.rgb(255, 118, 110)
+                    : darkMode ? Color.rgb(132, 61, 61) : Color.rgb(246, 190, 181);
             }
             TextView clue = (TextView) view;
-            clue.setTextColor(darkMode ? Color.rgb(245, 250, 248) : Color.rgb(32, 49, 46));
+                clue.setTextColor(classicMode ? Color.rgb(177, 37, 126)
+                    : darkMode ? Color.rgb(245, 250, 248) : Color.rgb(32, 49, 46));
             ValueAnimator glow = ValueAnimator.ofFloat(0, 1, 0);
             glow.setDuration(760);
             glow.setInterpolator(new DecelerateInterpolator());
@@ -597,22 +804,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void restartGame() {
-        if ((gameStarted || gameOver) && !game.usesRandomSeed()) {
-            answerInput.setText(Long.toString(game.getCurrentSeed()));
-        } else if (gameStarted || gameOver) {
-            answerInput.setText("");
-        }
-        startGame();
+        resetHomeScreen();
     }
 
     private void applyPalette() {
-        int background = darkMode ? Color.rgb(20, 33, 31) : Color.rgb(242, 247, 245);
-        int clueSurface = darkMode ? Color.rgb(38, 58, 53) : Color.rgb(232, 242, 239);
-        int primary = darkMode ? Color.rgb(83, 185, 168) : Color.rgb(25, 121, 111);
-        int text = darkMode ? Color.rgb(230, 242, 238) : Color.rgb(32, 49, 46);
-        int muted = darkMode ? Color.rgb(169, 192, 185) : Color.rgb(88, 112, 107);
-        int keypadSurface = darkMode ? Color.rgb(47, 68, 62) : Color.rgb(225, 239, 235);
-        int border = darkMode ? Color.rgb(70, 96, 88) : Color.rgb(204, 224, 217);
+        int background = classicMode ? Color.rgb(255, 178, 227)
+            : darkMode ? Color.rgb(20, 33, 31) : Color.rgb(242, 247, 245);
+        int clueSurface = themedClueColor();
+        int primary = themedPrimaryColor();
+        int text = themedTextColor();
+        int muted = themedMutedColor();
+        int keypadSurface = themedKeypadColor();
+        int border = themedBorderColor();
 
         gameRoot.setBackgroundColor(background);
         titleView.setTextColor(text);
@@ -620,6 +823,7 @@ public class MainActivity extends AppCompatActivity {
         livesView.setTextColor(muted);
         rangeView.setTextColor(text);
         solutionCountView.setTextColor(muted);
+        questionTimerView.setTextColor(muted);
         messageView.setTextColor(muted);
         answerInput.setTextColor(text);
         answerInput.setHintTextColor(muted);
@@ -627,7 +831,8 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             answerInput.setBackgroundTintList(ColorStateList.valueOf(muted));
             getWindow().setStatusBarColor(darkMode
-                    ? Color.rgb(13, 24, 22) : Color.rgb(18, 83, 78));
+                    ? Color.rgb(13, 24, 22) : classicMode
+                    ? Color.rgb(219, 9, 142) : Color.rgb(18, 83, 78));
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             getWindow().getDecorView().setSystemUiVisibility(darkMode
@@ -635,23 +840,26 @@ public class MainActivity extends AppCompatActivity {
         }
         if (getSupportActionBar() != null) {
             getSupportActionBar().setBackgroundDrawable(new ColorDrawable(
-                    darkMode ? Color.rgb(24, 61, 56) : Color.rgb(25, 121, 111)));
+                    classicMode ? Color.rgb(219, 9, 142)
+                        : darkMode ? Color.rgb(24, 61, 56) : Color.rgb(25, 121, 111)));
         }
 
         int[] keypadIds = {R.id.btnDigit0, R.id.btnDigit1, R.id.btnDigit2,
                 R.id.btnDigit3, R.id.btnDigit4, R.id.btnDigit5, R.id.btnDigit6,
                 R.id.btnDigit7, R.id.btnDigit8, R.id.btnDigit9,
-                R.id.btnBackspace, R.id.btnClear};
+            R.id.btnHint, R.id.btnClear};
         for (int id : keypadIds) {
             Button button = findViewById(id);
-            button.setTextColor(darkMode ? Color.rgb(245, 250, 248) : text);
+                button.setTextColor(classicMode ? Color.rgb(219, 9, 142)
+                    : darkMode ? Color.rgb(245, 250, 248) : text);
             button.setBackground(buttonBackground(keypadSurface, border));
         }
-        actionButton.setTextColor(Color.WHITE);
-        actionButton.setBackground(buttonBackground(primary, darkMode
-            ? Color.rgb(111, 205, 188) : Color.rgb(18, 96, 87)));
+        actionButton.setTextColor(classicMode ? Color.rgb(219, 9, 142) : Color.WHITE);
+        actionButton.setBackground(buttonBackground(primary, border));
         pointsOverlayView.setBackground(buttonBackground(
-            darkMode ? Color.rgb(188, 108, 72) : Color.rgb(185, 88, 52), border));
+                classicMode ? Color.rgb(219, 9, 142)
+                        : darkMode ? Color.rgb(188, 108, 72) : Color.rgb(185, 88, 52), border));
+        levelUpOverlayView.setBackground(buttonBackground(themedPrimaryColor(), border));
 
         for (int index = 0; index < clueContainer.getChildCount(); index++) {
             View child = clueContainer.getChildAt(index);
@@ -660,6 +868,36 @@ public class MainActivity extends AppCompatActivity {
                 child.setBackground(buttonBackground(clueSurface, border));
             }
         }
+    }
+
+    private int themedTextColor() {
+        return classicMode ? Color.rgb(177, 37, 126)
+                : darkMode ? Color.rgb(230, 242, 238) : Color.rgb(32, 49, 46);
+    }
+
+    private int themedMutedColor() {
+        return classicMode ? Color.rgb(219, 9, 142)
+                : darkMode ? Color.rgb(169, 192, 185) : Color.rgb(88, 112, 107);
+    }
+
+    private int themedClueColor() {
+        return classicMode ? Color.rgb(182, 246, 255)
+                : darkMode ? Color.rgb(38, 58, 53) : Color.rgb(232, 242, 239);
+    }
+
+    private int themedKeypadColor() {
+        return classicMode ? Color.rgb(121, 223, 238)
+                : darkMode ? Color.rgb(47, 68, 62) : Color.rgb(225, 239, 235);
+    }
+
+    private int themedPrimaryColor() {
+        return classicMode ? Color.rgb(121, 223, 238)
+                : darkMode ? Color.rgb(83, 185, 168) : Color.rgb(25, 121, 111);
+    }
+
+    private int themedBorderColor() {
+        return classicMode ? Color.rgb(177, 37, 126)
+                : darkMode ? Color.rgb(70, 96, 88) : Color.rgb(204, 224, 217);
     }
 
     private GradientDrawable buttonBackground(int color, int border) {
@@ -673,7 +911,7 @@ public class MainActivity extends AppCompatActivity {
     private void animateLivesChange(int previousLives, int currentLives) {
         int highlight = currentLives > previousLives
                 ? Color.rgb(70, 190, 153) : Color.rgb(229, 112, 91);
-        int resting = darkMode ? Color.rgb(169, 192, 185) : Color.rgb(88, 112, 107);
+        int resting = themedMutedColor();
         ObjectAnimator scaleX = ObjectAnimator.ofFloat(livesView, "scaleX", 1f, 1.3f, 1f);
         ObjectAnimator scaleY = ObjectAnimator.ofFloat(livesView, "scaleY", 1f, 1.3f, 1f);
         ObjectAnimator lift = ObjectAnimator.ofFloat(livesView, "translationY", 0,
@@ -693,8 +931,34 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showPointsEarned(int points) {
+        showPointsOverlay("+" + points + " points");
+    }
+
+    private void showAnswerBonus(NumberGameEngine.AnswerResult result) {
+        List<String> messages = new ArrayList<>();
+        Random random = new Random();
+        if (result.specialBonusLabel != null) {
+            messages.add(result.specialBonusLabel + " +" + result.specialBonusPoints);
+        }
+        if (result.speedBonus) {
+            String[] quickMessages = {"You're quick!", "That was fast!", "Speedy!"};
+            messages.add(quickMessages[random.nextInt(quickMessages.length)]);
+        }
+        if (result.biggestAnswerBonus) {
+            String[] bigMessages = {"That Was BIG", "Biggest Answer Bonus", "Big Deal"};
+            messages.add(bigMessages[random.nextInt(bigMessages.length)]);
+        }
+        if (messages.isEmpty()) {
+            showPointsEarned(result.pointsEarned);
+        } else {
+            showPointsOverlay(String.join("\n", messages) + "\n+"
+                    + result.pointsEarned + " points");
+        }
+    }
+
+    private void showPointsOverlay(String text) {
         pointsOverlayView.animate().cancel();
-        pointsOverlayView.setText("+" + points + " points");
+        pointsOverlayView.setText(text);
         pointsOverlayView.setVisibility(View.VISIBLE);
         pointsOverlayView.setAlpha(0f);
         pointsOverlayView.setScaleX(0.8f);
@@ -716,6 +980,106 @@ public class MainActivity extends AppCompatActivity {
                 .start();
     }
 
+    private void animateSpecialAnswer(int answer) {
+        if (answer == 67) {
+            animateDigitButtons(new int[]{6, 7}, false);
+        } else if (answer == 69) {
+            animateDigitButtons(new int[]{6, 9}, true);
+        } else if (answer == 420) {
+            int red = Color.rgb(224, 55, 48);
+            int base = themedKeypadColor();
+            for (int digit : new int[]{4, 2, 0}) {
+                Button button = digitButtons[digit];
+                ValueAnimator glow = ValueAnimator.ofObject(new ArgbEvaluator(),
+                        base, red, base, red, base);
+                glow.setDuration(2200);
+                glow.addUpdateListener(animation -> button.setBackground(
+                        buttonBackground((Integer) animation.getAnimatedValue(),
+                                themedBorderColor())));
+                glow.start();
+            }
+        }
+    }
+
+        private void animateLevelUp(int level) {
+        Button[] keys = new Button[12];
+        System.arraycopy(digitButtons, 0, keys, 0, digitButtons.length);
+        keys[10] = hintButton;
+        keys[11] = findViewById(R.id.btnClear);
+        for (int index = 0; index < keys.length; index++) {
+            Button key = keys[index];
+            ObjectAnimator bounce = ObjectAnimator.ofFloat(key, "translationY",
+                0f, -dp(10), 0f);
+            bounce.setStartDelay(index * 45L);
+            bounce.setDuration(420);
+            bounce.start();
+        }
+
+        levelUpOverlayView.animate().cancel();
+        levelUpOverlayView.setText("LEVEL UP  ·  " + String.format(Locale.US, "%02d", level));
+        levelUpOverlayView.setVisibility(View.VISIBLE);
+        levelUpOverlayView.setAlpha(0f);
+        levelUpOverlayView.setScaleX(0.88f);
+        levelUpOverlayView.setScaleY(0.88f);
+        levelUpOverlayView.setTranslationY(dp(14));
+        levelUpOverlayView.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .translationY(-dp(12))
+            .setDuration(220)
+            .withEndAction(() -> levelUpOverlayView.animate()
+                .alpha(0f)
+                .translationY(-dp(48))
+                .setStartDelay(600)
+                .setDuration(420)
+                .withEndAction(() -> levelUpOverlayView.setVisibility(View.GONE))
+                .start())
+            .start();
+        }
+
+    private void animateDigitButtons(int[] digits, boolean spin) {
+        for (int digit : digits) {
+            Button button = digitButtons[digit];
+            ObjectAnimator animation = spin
+                    ? ObjectAnimator.ofFloat(button, "rotation", 0f, 360f)
+                    : ObjectAnimator.ofFloat(button, "translationY", 0f, -dp(12), 0f);
+            animation.setDuration(spin ? 600 : 420);
+            animation.setRepeatCount(ValueAnimator.INFINITE);
+            animation.start();
+            timerHandler.postDelayed(() -> {
+                animation.cancel();
+                button.setRotation(0f);
+                button.setTranslationY(0f);
+            }, 1800);
+        }
+    }
+
+    private void startQuestionTimer() {
+        stopQuestionTimer();
+        questionTimerStartMillis = System.currentTimeMillis() - game.getQuestionElapsedMillis();
+        questionTimerUpdate = new Runnable() {
+            @Override
+            public void run() {
+                if (!gameStarted || gameOver) return;
+                double elapsedSeconds = (System.currentTimeMillis() - questionTimerStartMillis) / 1000.0;
+                int thresholdSeconds = (game.getLevel() + 1) * (game.getLevel() + 1);
+                questionTimerView.setText(String.format(Locale.US, "%.1fs", elapsedSeconds));
+                questionTimerView.setTextColor(elapsedSeconds < thresholdSeconds
+                        ? Color.rgb(72, 190, 133) : Color.rgb(231, 92, 82));
+                timerHandler.postDelayed(this, 100);
+            }
+        };
+        timerHandler.post(questionTimerUpdate);
+    }
+
+    private void stopQuestionTimer() {
+        if (questionTimerUpdate != null) {
+            timerHandler.removeCallbacks(questionTimerUpdate);
+            questionTimerUpdate = null;
+        }
+    }
+
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
@@ -727,19 +1091,10 @@ public class MainActivity extends AppCompatActivity {
         answerInput.append(Integer.toString(digit));
     }
 
-    private void deleteLastDigit() {
-        if (!answerInput.isEnabled()) {
-            return;
-        }
-        String value = answerInput.getText().toString();
-        if (!value.isEmpty()) {
-            answerInput.setText(value.substring(0, value.length() - 1));
-        }
-    }
-
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stopQuestionTimer();
         if (soundGenerator != null) {
             soundGenerator.release();
             soundGenerator = null;

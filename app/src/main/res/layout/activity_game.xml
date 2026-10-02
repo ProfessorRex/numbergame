@@ -25,7 +25,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="NUMBER GAME"
+            android:text="Solve For X"
             android:textColor="@color/game_text"
             android:textSize="20sp"
             android:textStyle="bold" />
@@ -61,6 +61,17 @@
             android:textColor="@color/game_muted"
             android:textSize="12sp"
             android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvQuestionTimer"
+                android:layout_width="54dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:gravity="end"
+                android:text="0.0s"
+                android:textColor="@color/game_muted"
+                android:textSize="12sp"
+                android:textStyle="bold" />
     </LinearLayout>
 
     <TextView
@@ -162,10 +173,10 @@
             android:orientation="horizontal">
 
             <Button
-                android:id="@+id/btnBackspace"
+                android:id="@+id/btnHint"
                 style="@style/KeypadButton"
-                android:contentDescription="Delete last digit"
-                android:text="DEL" />
+                android:contentDescription="Request a hint"
+                android:text="HINT (3)" />
             <Button android:id="@+id/btnDigit0" style="@style/KeypadButton" android:text="0" />
             <Button
                 android:id="@+id/btnClear"
@@ -199,6 +210,23 @@
         android:paddingBottom="10dp"
         android:textColor="#FFFFFF"
         android:textSize="20sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tvLevelUp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="170dp"
+        android:alpha="0"
+        android:elevation="9dp"
+        android:paddingStart="14dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="8dp"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
         android:textStyle="bold"
         android:visibility="gone" />
 </FrameLayout>

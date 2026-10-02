@@ -30,10 +30,16 @@ public final class NumberGameEngine implements AutoCloseable {
         public final boolean levelUp;
         public final Integer correctAnswer;
         public final List<Boolean> clueMatches;
+        public final boolean speedBonus;
+        public final boolean biggestAnswerBonus;
+        public final String specialBonusLabel;
+        public final int specialBonusPoints;
 
         private AnswerResult(AnswerStatus status, int pointsEarned, int totalPoints,
                      int lives, int level, boolean levelUp, Integer correctAnswer,
-                     List<Boolean> clueMatches) {
+                     List<Boolean> clueMatches, boolean speedBonus,
+                     boolean biggestAnswerBonus, String specialBonusLabel,
+                     int specialBonusPoints) {
             this.status = status;
             this.pointsEarned = pointsEarned;
             this.totalPoints = totalPoints;
@@ -42,6 +48,36 @@ public final class NumberGameEngine implements AutoCloseable {
             this.levelUp = levelUp;
             this.correctAnswer = correctAnswer;
             this.clueMatches = Collections.unmodifiableList(new ArrayList<>(clueMatches));
+            this.speedBonus = speedBonus;
+            this.biggestAnswerBonus = biggestAnswerBonus;
+            this.specialBonusLabel = specialBonusLabel;
+            this.specialBonusPoints = specialBonusPoints;
+        }
+    }
+
+    public static final class HintResult {
+        public final Question question;
+        public final int hintsRemaining;
+        public final boolean alreadyUsed;
+        public final boolean unavailable;
+
+        private HintResult(Question question, int hintsRemaining,
+                           boolean alreadyUsed, boolean unavailable) {
+            this.question = question;
+            this.hintsRemaining = hintsRemaining;
+            this.alreadyUsed = alreadyUsed;
+            this.unavailable = unavailable;
+        }
+    }
+
+    public static final class LevelUpEvent implements Serializable {
+        private static final long serialVersionUID = 1L;
+        public final int level;
+        public final long timestampMillis;
+
+        private LevelUpEvent(int level, long timestampMillis) {
+            this.level = level;
+            this.timestampMillis = timestampMillis;
         }
     }
 
@@ -61,26 +97,44 @@ public final class NumberGameEngine implements AutoCloseable {
     public static final class Question implements Serializable {
         private static final long serialVersionUID = 1L;
         public final List<Clue> clues;
+        public final int level;
         public final int minimum;
         public final int maximum;
         public final int solutionCount;
+        public final int lowestAnswer;
+        public final int highestAnswer;
         private final List<Integer> solutions;
         private final List<Rule> rules;
         private final List<Integer> ruleParameters;
         private final String signature;
 
-        private Question(List<Clue> clues, int minimum, int maximum,
+        private Question(List<Clue> clues, int level, int minimum, int maximum,
                  List<Integer> solutions, List<Rule> rules,
                  List<Integer> ruleParameters,
                  String signature) {
             this.clues = Collections.unmodifiableList(new ArrayList<>(clues));
+            this.level = level;
             this.minimum = minimum;
             this.maximum = maximum;
             this.solutions = Collections.unmodifiableList(new ArrayList<>(solutions));
+            this.lowestAnswer = Collections.min(solutions);
+            this.highestAnswer = Collections.max(solutions);
             this.rules = Collections.unmodifiableList(new ArrayList<>(rules));
             this.ruleParameters = Collections.unmodifiableList(new ArrayList<>(ruleParameters));
             this.solutionCount = solutions.size();
             this.signature = signature;
+        }
+
+        private Question withHint(Clue clue, Rule rule, int parameter,
+                                  List<Integer> filteredSolutions) {
+            List<Clue> updatedClues = new ArrayList<>(clues);
+            updatedClues.add(clue);
+            List<Rule> updatedRules = new ArrayList<>(rules);
+            updatedRules.add(rule);
+            List<Integer> updatedParameters = new ArrayList<>(ruleParameters);
+            updatedParameters.add(parameter);
+            return new Question(updatedClues, level, minimum, maximum, filteredSolutions,
+                    updatedRules, updatedParameters, signature + "|hint:" + clue.text);
         }
 
         private List<Boolean> matchesFor(int number, NumberGameEngine engine) {
@@ -98,7 +152,16 @@ public final class NumberGameEngine implements AutoCloseable {
         private final int lives;
         private final int points;
         private final int questionsAnswered;
+        private final int questionsAnsweredThisLevel;
+        private final boolean levelQuestionDataInitialized;
+        private final int questionNumber;
         private final int generatedQuestionCount;
+        private final int hintsAvailable;
+        private final boolean hintDataInitialized;
+        private final boolean hintUsedForCurrentQuestion;
+        private final boolean debugMode;
+        private final List<LevelUpEvent> levelUpEvents;
+        private final boolean levelUpDataInitialized;
         private final long currentSeed;
         private final long elapsedMillis;
         private final boolean randomSeed;
@@ -108,7 +171,10 @@ public final class NumberGameEngine implements AutoCloseable {
         private final Question currentQuestion;
 
         private GameSnapshot(int level, int lives, int points, int questionsAnswered,
-                     int generatedQuestionCount,
+                     int questionsAnsweredThisLevel,
+                     int questionNumber, int generatedQuestionCount,
+                     int hintsAvailable, boolean hintUsedForCurrentQuestion,
+                     boolean debugMode, List<LevelUpEvent> levelUpEvents,
                              long currentSeed, long elapsedMillis, boolean randomSeed,
                              Random random, ArrayDeque<Question> futureQuestions,
                              Set<String> seenQuestions, Question currentQuestion) {
@@ -116,7 +182,16 @@ public final class NumberGameEngine implements AutoCloseable {
             this.lives = lives;
             this.points = points;
             this.questionsAnswered = questionsAnswered;
+            this.questionsAnsweredThisLevel = questionsAnsweredThisLevel;
+            this.levelQuestionDataInitialized = true;
+            this.questionNumber = questionNumber;
             this.generatedQuestionCount = generatedQuestionCount;
+            this.hintsAvailable = hintsAvailable;
+            this.hintDataInitialized = true;
+            this.hintUsedForCurrentQuestion = hintUsedForCurrentQuestion;
+            this.debugMode = debugMode;
+            this.levelUpEvents = new ArrayList<>(levelUpEvents);
+            this.levelUpDataInitialized = true;
             this.currentSeed = currentSeed;
             this.elapsedMillis = elapsedMillis;
             this.randomSeed = randomSeed;
@@ -147,7 +222,7 @@ public final class NumberGameEngine implements AutoCloseable {
 
     private static final int[] MAXIMUMS = {100, 100, 1000, 1000, 10000, 10000, 10000};
     private static final int[] MINIMUMS = {0, 0, 10, 10, 100, 1000, 1000};
-    private static final int[] LEVEL_THRESHOLDS = {0, 50, 200, 600, 1500, 3000};
+    private static final int QUESTIONS_PER_LEVEL = 8;
     private static final char[] BAN_LETTERS = {'a', 'e', 'i', 'o', 't', 'u'};
 
     private final Object monitor = new Object();
@@ -159,7 +234,13 @@ public final class NumberGameEngine implements AutoCloseable {
     private int lives = 3;
     private int points;
     private int questionsAnswered;
+    private int questionsAnsweredThisLevel;
+    private int questionNumber;
     private int generatedQuestionCount;
+    private int hintsAvailable = 3;
+    private boolean hintUsedForCurrentQuestion;
+    private boolean debugMode;
+    private final List<LevelUpEvent> levelUpEvents = new ArrayList<>();
     private long currentSeed;
     private boolean randomSeed;
     private long questionStartedAt;
@@ -180,6 +261,11 @@ public final class NumberGameEngine implements AutoCloseable {
     }
 
     public void startGame(int startLevel, Long seed, QuestionListener listener) {
+        startGame(startLevel, seed, false, listener);
+    }
+
+    public void startGame(int startLevel, Long seed, boolean debugMode,
+                          QuestionListener listener) {
         synchronized (monitor) {
             level = Math.max(1, Math.min(6, startLevel));
             randomSeed = seed == null;
@@ -188,7 +274,13 @@ public final class NumberGameEngine implements AutoCloseable {
             lives = 3;
             points = 0;
             questionsAnswered = 0;
+            questionsAnsweredThisLevel = 0;
+            questionNumber = 0;
             generatedQuestionCount = 0;
+            hintsAvailable = 3;
+            hintUsedForCurrentQuestion = false;
+            this.debugMode = debugMode;
+            levelUpEvents.clear();
             currentQuestion = null;
             pendingListener = listener;
             running = true;
@@ -205,7 +297,19 @@ public final class NumberGameEngine implements AutoCloseable {
             lives = snapshot.lives;
             points = snapshot.points;
             questionsAnswered = snapshot.questionsAnswered;
+                questionsAnsweredThisLevel = snapshot.levelQuestionDataInitialized
+                    ? snapshot.questionsAnsweredThisLevel
+                    : snapshot.questionsAnswered % QUESTIONS_PER_LEVEL;
+                questionNumber = snapshot.questionNumber > 0 ? snapshot.questionNumber
+                    : Math.max(1, snapshot.questionsAnswered + 1);
             generatedQuestionCount = snapshot.generatedQuestionCount;
+                hintsAvailable = snapshot.hintDataInitialized ? snapshot.hintsAvailable : 3;
+                hintUsedForCurrentQuestion = snapshot.hintUsedForCurrentQuestion;
+                debugMode = snapshot.debugMode;
+            levelUpEvents.clear();
+            if (snapshot.levelUpDataInitialized && snapshot.levelUpEvents != null) {
+                levelUpEvents.addAll(snapshot.levelUpEvents);
+            }
             currentSeed = snapshot.currentSeed;
             randomSeed = snapshot.randomSeed;
             random = snapshot.random;
@@ -237,7 +341,10 @@ public final class NumberGameEngine implements AutoCloseable {
             long elapsed = currentQuestion == null ? 0
                     : Math.max(0, System.currentTimeMillis() - questionStartedAt);
                 return new GameSnapshot(level, lives, points, questionsAnswered,
-                    generatedQuestionCount, currentSeed,
+                    questionsAnsweredThisLevel, questionNumber,
+                    generatedQuestionCount, hintsAvailable,
+                    hintUsedForCurrentQuestion, debugMode,
+                    new ArrayList<>(levelUpEvents), currentSeed,
                     elapsed, randomSeed, random, new ArrayDeque<>(futureQuestions),
                     new HashSet<>(seenQuestions), currentQuestion);
         }
@@ -287,21 +394,39 @@ public final class NumberGameEngine implements AutoCloseable {
                 return result(AnswerStatus.WRONG, 0, false, null, clueMatches);
             }
 
-            int earned = calculatePoints(guess, currentQuestion, level,
-                    (System.currentTimeMillis() - questionStartedAt) / 1000.0);
+            double elapsedSeconds = (System.currentTimeMillis() - questionStartedAt) / 1000.0;
+                int earned = calculatePoints(guess, currentQuestion, level, elapsedSeconds);
+            boolean speedBonus = elapsedSeconds < (level + 1) * (level + 1);
+            boolean biggestAnswerBonus = currentQuestion.solutionCount > 1
+                    && guess == Collections.max(currentQuestion.solutions);
+            if (biggestAnswerBonus) {
+                earned = (earned * 3 + 1) / 2;
+            }
+            if (speedBonus) {
+                earned *= 2;
+            }
+                int specialBonusPoints = guess == 67 ? 67 : guess == 69 ? 69
+                    : guess == 420 ? 100 : 0;
+                String specialBonusLabel = guess == 67 ? "67 BONUS" : guess == 69 ? "NICE"
+                    : guess == 420 ? "🔥" : null;
+                earned += specialBonusPoints;
             points += earned;
             questionsAnswered++;
+            questionsAnsweredThisLevel++;
             currentQuestion = null;
-            boolean levelUp = level < 6 && points >= LEVEL_THRESHOLDS[level];
+            boolean levelUp = level < 6
+                    && questionsAnsweredThisLevel >= QUESTIONS_PER_LEVEL;
             if (levelUp) {
                 level++;
+                levelUpEvents.add(new LevelUpEvent(level, System.currentTimeMillis()));
+                questionsAnsweredThisLevel = 0;
                 lives++;
-                generatedQuestionCount -= futureQuestions.size();
-                futureQuestions.clear();
-                generationEpoch++;
+                hintsAvailable++;
             }
             monitor.notifyAll();
-            return result(AnswerStatus.CORRECT, earned, levelUp);
+                return result(AnswerStatus.CORRECT, earned, levelUp, null,
+                    Collections.emptyList(), speedBonus, biggestAnswerBonus,
+                    specialBonusLabel, specialBonusPoints);
         }
     }
 
@@ -329,6 +454,137 @@ public final class NumberGameEngine implements AutoCloseable {
         }
     }
 
+    public int getQuestionNumber() {
+        synchronized (monitor) {
+            return Math.max(1, questionNumber);
+        }
+    }
+
+    public int getHintsAvailable() {
+        synchronized (monitor) {
+            return hintsAvailable;
+        }
+    }
+
+    public boolean isDebugMode() {
+        synchronized (monitor) {
+            return debugMode;
+        }
+    }
+
+    public List<LevelUpEvent> getLevelUpEvents() {
+        synchronized (monitor) {
+            return Collections.unmodifiableList(new ArrayList<>(levelUpEvents));
+        }
+    }
+
+    public HintResult requestHint() {
+        synchronized (monitor) {
+            if (!running || currentQuestion == null) {
+                return new HintResult(currentQuestion, hintsAvailable, false, true);
+            }
+            if (hintUsedForCurrentQuestion) {
+                return new HintResult(currentQuestion, hintsAvailable, true, false);
+            }
+            if (hintsAvailable <= 0) {
+                return new HintResult(currentQuestion, hintsAvailable, false, true);
+            }
+
+            Random hintRandom = new Random(currentSeed);
+            for (int step = 0; step < questionNumber; step++) {
+                hintRandom.nextInt();
+            }
+            int answer = currentQuestion.solutions.get(
+                    hintRandom.nextInt(currentQuestion.solutions.size()));
+            boolean hasArithmeticHint = currentQuestion.rules.contains(Rule.DIGIT_SUM)
+                    || currentQuestion.rules.contains(Rule.DIGIT_PRODUCT);
+            List<Rule> candidates = new ArrayList<>();
+            for (Rule rule : Rule.values()) {
+                if (rule.unlockLevel > level || currentQuestion.rules.contains(rule)) {
+                    continue;
+                }
+                boolean arithmetic = rule == Rule.DIGIT_SUM || rule == Rule.DIGIT_PRODUCT;
+                if ((hasArithmeticHint && arithmetic) || (!hasArithmeticHint && !arithmetic)) {
+                    continue;
+                }
+                if (!arithmetic && !matches(rule, answer, 0)) {
+                    continue;
+                }
+                if (rule == Rule.BAN) {
+                    String spelling = numberToEnglish(answer).toLowerCase(Locale.US);
+                    boolean hasAbsentLetter = false;
+                    for (char letter : BAN_LETTERS) {
+                        if (spelling.indexOf(letter) < 0) {
+                            hasAbsentLetter = true;
+                            break;
+                        }
+                    }
+                    if (!hasAbsentLetter) continue;
+                }
+                candidates.add(rule);
+            }
+            if (candidates.isEmpty()) {
+                return new HintResult(currentQuestion, hintsAvailable, false, true);
+            }
+
+            Rule hintRule = candidates.get(hintRandom.nextInt(candidates.size()));
+            int parameter;
+            if (hintRule == Rule.DIGIT_SUM) {
+                parameter = digitSum(answer);
+            } else if (hintRule == Rule.DIGIT_PRODUCT) {
+                parameter = digitProduct(answer);
+            } else if (hintRule == Rule.BAN) {
+                List<Character> absentLetters = new ArrayList<>();
+                String spelling = numberToEnglish(answer).toLowerCase(Locale.US);
+                for (char letter : BAN_LETTERS) {
+                    if (spelling.indexOf(letter) < 0) absentLetters.add(letter);
+                }
+                parameter = absentLetters.get(hintRandom.nextInt(absentLetters.size()));
+            } else {
+                parameter = 0;
+            }
+
+            List<Integer> filteredSolutions = new ArrayList<>();
+            for (int solution : currentQuestion.solutions) {
+                if (matches(hintRule, solution, parameter)) filteredSolutions.add(solution);
+            }
+            if (filteredSolutions.isEmpty()) {
+                return new HintResult(currentQuestion, hintsAvailable, false, true);
+            }
+            Clue clue = makeClue(hintRule, parameter, hintRandom);
+            currentQuestion = currentQuestion.withHint(clue, hintRule, parameter,
+                    filteredSolutions);
+            hintsAvailable--;
+            hintUsedForCurrentQuestion = true;
+            return new HintResult(currentQuestion, hintsAvailable, false, false);
+        }
+    }
+
+    public boolean skipToNextLevel(QuestionListener listener) {
+        synchronized (monitor) {
+            if (!running || closed || !debugMode || level >= 6) return false;
+            level++;
+            levelUpEvents.add(new LevelUpEvent(level, System.currentTimeMillis()));
+            questionsAnsweredThisLevel = 0;
+            lives++;
+            hintsAvailable++;
+            currentQuestion = null;
+            pendingListener = listener;
+            generatedQuestionCount -= futureQuestions.size();
+            futureQuestions.clear();
+            generationEpoch++;
+            monitor.notifyAll();
+            return true;
+        }
+    }
+
+    public long getQuestionElapsedMillis() {
+        synchronized (monitor) {
+            return currentQuestion == null ? 0
+                    : Math.max(0, System.currentTimeMillis() - questionStartedAt);
+        }
+    }
+
     public long getCurrentSeed() {
         synchronized (monitor) {
             return currentSeed;
@@ -347,8 +603,23 @@ public final class NumberGameEngine implements AutoCloseable {
 
     private AnswerResult result(AnswerStatus status, int earned, boolean levelUp,
                                 Integer correctAnswer, List<Boolean> clueMatches) {
+        return result(status, earned, levelUp, correctAnswer, clueMatches, false, false);
+        }
+
+        private AnswerResult result(AnswerStatus status, int earned, boolean levelUp,
+                    Integer correctAnswer, List<Boolean> clueMatches,
+                    boolean speedBonus, boolean biggestAnswerBonus) {
+        return result(status, earned, levelUp, correctAnswer, clueMatches,
+                speedBonus, biggestAnswerBonus, null, 0);
+    }
+
+    private AnswerResult result(AnswerStatus status, int earned, boolean levelUp,
+                                Integer correctAnswer, List<Boolean> clueMatches,
+                                boolean speedBonus, boolean biggestAnswerBonus,
+                                String specialBonusLabel, int specialBonusPoints) {
         return new AnswerResult(status, earned, points, lives, level, levelUp,
-                correctAnswer, clueMatches);
+            correctAnswer, clueMatches, speedBonus, biggestAnswerBonus,
+            specialBonusLabel, specialBonusPoints);
     }
 
     private void generateInBackground() {
@@ -371,7 +642,7 @@ public final class NumberGameEngine implements AutoCloseable {
                 if (closed) {
                     return;
                 }
-                requestedLevel = level;
+                requestedLevel = levelForNextGeneratedQuestion();
                 requestedEpoch = generationEpoch;
                 requestedRandom = random;
                 requireDigitHint = generatedQuestionCount % 2 == 0;
@@ -381,7 +652,8 @@ public final class NumberGameEngine implements AutoCloseable {
             Question question = createQuestion(requestedLevel, history, requestedRandom,
                     requireDigitHint);
             synchronized (monitor) {
-                if (!running || closed || requestedEpoch != generationEpoch || requestedLevel != level) {
+                if (!running || closed || requestedEpoch != generationEpoch
+                    || requestedLevel != levelForNextGeneratedQuestion()) {
                     continue;
                 }
                 if (!seenQuestions.add(question.signature)) {
@@ -395,12 +667,20 @@ public final class NumberGameEngine implements AutoCloseable {
         }
     }
 
+    private int levelForNextGeneratedQuestion() {
+        int questionsAhead = (currentQuestion == null ? 0 : 1) + futureQuestions.size();
+        return Math.min(6, level + (questionsAnsweredThisLevel + questionsAhead)
+                / QUESTIONS_PER_LEVEL);
+    }
+
     private void deliverQuestionIfReady() {
         if (pendingListener == null || futureQuestions.isEmpty() || !running) {
             return;
         }
         Question question = futureQuestions.removeFirst();
         currentQuestion = question;
+        questionNumber++;
+        hintUsedForCurrentQuestion = false;
         questionStartedAt = System.currentTimeMillis();
         QuestionListener listener = pendingListener;
         pendingListener = null;
@@ -522,7 +802,7 @@ public final class NumberGameEngine implements AutoCloseable {
             if (history.contains(signature)) {
                 continue;
             }
-                return new Question(clues, minimum, maximum, possible,
+                return new Question(clues, requestedLevel, minimum, maximum, possible,
                     questionRules, ruleParameters, signature);
         }
     }
@@ -637,11 +917,11 @@ public final class NumberGameEngine implements AutoCloseable {
         switch (rule) {
             case EVEN:
                 return sourceRandom.nextInt(4) == 0
-                        ? clue("X is not an odd number", "Even number", "A number evenly divisible by 2. Examples: 0, 2, 10, 108, 784.")
+                        ? clue("X is not an odd number", "Odd number", "An odd number is not evenly divisible by 2. Examples: 1, 7, 13, 91, 999.")
                         : clue("X is an Even Number", "Even number", "A number evenly divisible by 2. Examples: 0, 2, 10, 108, 784.");
             case ODD:
                 return sourceRandom.nextInt(4) == 0
-                        ? clue("X is not an even number", "Odd number", "A number not evenly divisible by 2. Examples: 1, 7, 13, 91, 999.")
+                        ? clue("X is not an even number", "Even number", "An even number is evenly divisible by 2. Examples: 0, 2, 10, 108, 784.")
                         : clue("X is an Odd Number", "Odd number", "A number not evenly divisible by 2. Examples: 1, 7, 13, 91, 999.");
             case DIGIT_SUM:
                 return clue("The sum of X's digits is " + parameter, "Digit sum", "Add the number's individual digits. For example, 763 has digit sum 7 + 6 + 3 = 16.");
@@ -700,8 +980,8 @@ public final class NumberGameEngine implements AutoCloseable {
 
     private int calculatePoints(int answer, Question question, int currentLevel, double seconds) {
         List<Integer> ruleLevels = new ArrayList<>();
-        for (Clue clue : question.clues) {
-            ruleLevels.add(ruleLevel(clue.title));
+        for (Rule rule : question.rules) {
+            ruleLevels.add(rule.unlockLevel);
         }
         Collections.sort(ruleLevels, Collections.reverseOrder());
         double ruleValue = 1.0;
